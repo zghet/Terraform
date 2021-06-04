@@ -1,0 +1,109 @@
+# Creación de una VM con IP publica con terraform
+
+provider "azurerm" {
+  features {}
+}
+
+#Se declara la variable
+variable "prefix" {
+  default = "Nginx-Docker"
+}
+
+#creamos grupo de recursos
+resource "azurerm_resource_group" "docker-k8" {
+  name     = "${var.prefix}-resources"
+  location = "eastus"
+
+  tags = {
+    environment = "Kubernet-test"
+  }
+}
+
+#creamos recursos de red
+resource "azurerm_virtual_network" "docker-k8" {
+  name                = "${var.prefix}-network"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.docker-k8.location
+  resource_group_name = azurerm_resource_group.docker-k8.name
+
+  tags = {
+    environment = "Kubernet-test"
+    }
+}
+
+#Creacion de subnet
+resource "azurerm_subnet" "internal" {
+  name                 = "${var.prefix}-internal"
+  resource_group_name  = azurerm_resource_group.docker-k8.name
+  virtual_network_name = azurerm_virtual_network.docker-k8.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+#Creación de Ip Publica
+resource "azurerm_public_ip" "publicip-k8" {
+  name                = "${var.prefix}-IP"
+  resource_group_name = azurerm_resource_group.docker-k8.name
+  location            = azurerm_resource_group.docker-k8.location
+  allocation_method   = "Dynamic"
+  sku = "Basic"
+
+  tags = {
+    environment = "Kubernet-test"
+  }
+}
+
+#Interfaz de red
+resource "azurerm_network_interface" "vmnic-docker" {
+  name                = "${var.prefix}-nic"
+  location            = azurerm_resource_group.docker-k8.location
+  resource_group_name = azurerm_resource_group.docker-k8.name
+
+  ip_configuration {
+    name                          = "testconfiguration1"
+    subnet_id                     = azurerm_subnet.internal.id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id = azurerm_public_ip.publicip-k8.id
+  }
+
+    tags = {
+        environment = "Kubernet-test"
+    }
+}
+
+
+#######################################
+#Creación de VM 
+
+resource "azurerm_virtual_machine" "webserver" {
+  name                  = "${var.prefix}-vm"
+  location              = azurerm_resource_group.docker-k8.location
+  resource_group_name   = azurerm_resource_group.docker-k8.name
+  network_interface_ids = [azurerm_network_interface.vmnic-docker.id]
+  vm_size               = "Standard_DS2_v2"
+
+  storage_image_reference {
+    publisher = "Canonical"
+    offer     = "UbuntuServer"
+    sku       = "18_04-lts-gen2"
+    version   = "latest"
+  }
+
+  storage_os_disk {
+    name              = "myosdisk1"
+    caching           = "ReadWrite"
+    create_option     = "FromImage"
+    managed_disk_type = "Standard_LRS"
+  }
+
+  os_profile {
+    computer_name  = "hostname"
+    admin_username = "testadmin"
+    admin_password = "sp-6ae@m~+'L"
+  }
+  os_profile_linux_config {
+    disable_password_authentication = false
+  }
+  tags = {
+    environment = "Kubernet-test"
+  }
+}
